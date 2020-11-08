@@ -1,0 +1,105 @@
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+java {
+  sourceCompatibility = JavaVersion.VERSION_1_8
+  targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+wrapper{ gradleVersion = '6.6.1' }
+
+ext {
+  productVersion = System.env.RELEASE_VERSION ?: 'LOCAL-SNAPSHOT'
+  encoding = 'UTF-8'
+  artifactId = 'beanfabrics-fx'
+}
+group = 'org.beanfabrics'
+version = productVersion
+
+repositories {
+  mavenCentral()
+}
+
+dependencies {
+  compile 'org.beanfabrics:beanfabrics-core:1.4.3'
+  compile 'org.controlsfx:controlsfx:8.40.17' // 8.41.0-sanacorp
+  compile 'com.google.guava:guava:20.0'
+  compile 'com.google.code.findbugs:annotations:3.0.1'
+  compile 'org.glassfish:javax.el:3.0.1-b08'
+  compile 'log4j:log4j:1.2.17'
+  compile 'org.slf4j:slf4j-log4j12:1.7.1'
+
+  annotationProcessor 'com.google.auto.service:auto-service:1.0-rc4'
+  compileOnly 'com.google.auto.service:auto-service:1.0-rc4'
+
+  testCompile 'org.assertj:assertj-core:2.8.0'
+  testCompile 'junit:junit:4.12'
+  testCompile 'org.testfx:testfx-junit:4.0.12-alpha'
+}
+
+ext.aptFolder = '.apt_generated'
+
+// Enable annotation processing in Eclipse
+eclipse.jdt.file.withProperties { props ->
+  props['org.eclipse.jdt.core.compiler.processAnnotations'] = 'enabled'
+}
+
+task eclipseApt doLast {
+  File jdtAptCorePrefs = file('.settings/org.eclipse.jdt.apt.core.prefs')
+  jdtAptCorePrefs.parentFile.mkdirs()
+  jdtAptCorePrefs.text = """\
+  eclipse.preferences.version=1
+  org.eclipse.jdt.apt.aptEnabled=true
+  org.eclipse.jdt.apt.genSrcDir=${aptFolder}
+  org.eclipse.jdt.apt.reconcileEnabled=true
+  """.stripIndent()
+}
+tasks.eclipse.dependsOn eclipseApt
+
+task eclipseFactorypath doLast {
+  file('.factorypath').withWriter {
+    Configuration aptEclipse = configurations.create('aptEclipse') // detachedConfiguration funktioniert nicht
+    sourceSets.each { SourceSet sourceSet ->
+      aptEclipse.extendsFrom configurations.getByName(sourceSet.annotationProcessorConfigurationName)
+    }
+    new groovy.xml.MarkupBuilder(it).factorypath {
+      aptEclipse.each { File dependency ->
+        factorypathentry(kind: 'EXTJAR', id: dependency.absolutePath, enabled: true, runInBatchMode: false)
+      }
+    }
+  }
+}
+tasks.eclipse.dependsOn eclipseFactorypath
+
+eclipseClasspath.doFirst {
+  file(aptFolder).mkdirs()
+}
+
+// Ignore warnings in aptFolder
+eclipse.classpath.file.whenMerged { cp ->
+  logger.lifecycle "Ignoring warnings in ${aptFolder} for project '${project.path}'"
+  def apt_generated = new org.gradle.plugins.ide.eclipse.model.SourceFolder(aptFolder, null)
+  apt_generated.entryAttributes << [ignore_optional_problems: true]
+  cp.entries.add(apt_generated)
+}
+
+// Set Line Separator to LF
+
+tasks.eclipse.doLast {
+  String lineSeparator = "\\n"
+  File coreRuntime = file("${project.projectDir}/.settings/org.eclipse.core.runtime.prefs")
+  if (!coreRuntime.exists()) {
+    coreRuntime.parentFile.mkdirs()
+    coreRuntime.setText("""\
+      eclipse.preferences.version=1
+      line.separator=${lineSeparator}
+      """.stripIndent(), "UTF-8")
+  }
+}
+
+cleanEclipse {
+  delete('.factorypath')
+  delete('.settings')
+}
+tasks.eclipse.dependsOn('cleanEclipse')
+

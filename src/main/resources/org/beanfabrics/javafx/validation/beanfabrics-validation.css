@@ -1,0 +1,5 @@
+.validation-error {
+  -fx-border-style: hidden hidden dashed hidden;
+  -fx-border-width: 1.2px;
+  -fx-border-color: red;
+}
